@@ -5,6 +5,8 @@ import { useBoneStore } from '../store/useBoneStore';
 import { angleBetween, distance } from '../utils/math';
 import type { Tool } from '../types';
 
+type DragMode = 'rotate' | 'move';
+
 /**
  * SceneManager orchestrates the entire PixiJS scene:
  *  - Application initialization
@@ -22,7 +24,10 @@ export class SceneManager {
 
     // Interaction state
     private isDragging = false;
+    private dragMode: DragMode = 'rotate';
     private dragStartAngle = 0;
+    private dragStartPos: { x: number; y: number } | null = null;
+    private dragBoneStartPos: { x: number; y: number } | null = null;
     private dragBoneId: string | null = null;
     private pendingJointId: string | null = null;
 
@@ -108,9 +113,44 @@ export class SceneManager {
                 if (closest) {
                     store.setActiveBone(closest.id);
                     const parentWorld = store.getWorldTransform(closest.id);
+
                     this.isDragging = true;
                     this.dragBoneId = closest.id;
-                    this.dragStartAngle = angleBetween(parentWorld.x, parentWorld.y, pos.x, pos.y);
+                    this.dragStartPos = { x: pos.x, y: pos.y };
+
+                    // Determine drag mode based on where they clicked (joint vs bone body)
+                    // For now, let's say clicking near the origin is 'move', and further out is 'rotate'
+                    // But actually, typically 'select' tool does rotation by default in simple IK/FK apps
+                    // Let's implement a simple logic: if closest point is < 10px from origin -> move (if root) or rotate (if child)?
+                    // Actually, simpler: Left Click = Rotate, Right Click (or Shift+Click) = Move.
+                    // Or let's just make it context sensitive:
+                    // If you click on the joint circle -> Move
+                    // If you click on the bone line -> Rotate
+
+                    // Refined finding logic:
+                    // We need to know if we clicked the "origin" of the bone or the "body"
+                    const bone = store.bones.find(b => b.id === closest.id);
+                    if (bone) {
+
+                        // If it's a root bone, we can move it
+                        // If it's a child bone, moving it changes its local position (which acts like scaling/sliding)
+                        // For a rigid skeleton, usually we only Rotate children.
+                        // But users asked to "move the character".
+
+                        // Let's implement:
+                        // 1. Root bones: Dragging moves the whole tree.
+                        // 2. Child bones: Dragging rotates the parent (IK) or just rotates self (FK). 
+                        // The user said "move the character", implying root movement.
+                        // And "using bone and joints" implies manipulating the rig.
+
+                        if (bone.parentId === null) {
+                            this.dragMode = 'move';
+                            this.dragBoneStartPos = { ...bone.position };
+                        } else {
+                            this.dragMode = 'rotate';
+                            this.dragStartAngle = angleBetween(parentWorld.x, parentWorld.y, pos.x, pos.y);
+                        }
+                    }
                 } else {
                     store.setActiveBone(null);
                 }
@@ -118,29 +158,71 @@ export class SceneManager {
         });
 
         stage.on('pointermove', (event) => {
-            if (!this.isDragging || !this.dragBoneId) return;
+            if (!this.isDragging || !this.dragBoneId || !this.dragStartPos) return;
 
             const pos = event.global;
             const store = useBoneStore.getState();
             const bone = store.bones.find((b) => b.id === this.dragBoneId);
             if (!bone) return;
 
-            const world = store.getWorldTransform(bone.id);
-            const currentAngle = angleBetween(world.x, world.y, pos.x, pos.y);
-            const delta = currentAngle - this.dragStartAngle;
-            this.dragStartAngle = currentAngle;
+            if (this.dragMode === 'move') {
+                // Moving a root bone
+                if (this.dragBoneStartPos) {
+                    const dx = pos.x - this.dragStartPos.x;
+                    const dy = pos.y - this.dragStartPos.y;
 
-            store.updateBone(bone.id, { rotation: bone.rotation + delta });
+                    store.updateBone(bone.id, {
+                        position: {
+                            x: this.dragBoneStartPos.x + dx,
+                            y: this.dragBoneStartPos.y + dy
+                        }
+                    });
+                }
+            } else if (this.dragMode === 'rotate') {
+                const world = store.getWorldTransform(bone.id);
+                // For rotation, we need the angle relative to the bone's origin
+                // But wait, if we are rotating *this* bone, the pivot is its origin.
+                // The angle we are dragging is the angle from the pivot to the mouse.
+                const currentAngle = angleBetween(world.x, world.y, pos.x, pos.y);
+
+                // We need the *change* in angle to apply to the local rotation
+                // But wait, `dragStartAngle` was initialized relative to world space.
+                // So `delta` is the world space rotation difference.
+                // We can just add this delta to the local rotation.
+
+                // Re-initialize dragStartAngle on move to avoid jumps if we switched modes?
+                // No, standard click-drag logic:
+                // On Down: record StartAngle (Mouse -> Pivot)
+                // On Move: CurrentAngle (Mouse -> Pivot)
+                // Delta = Current - Start
+                // NewRotation = OldRotation + Delta
+                // This requires storing OldRotation on MouseDown. 
+
+                // Current implementation was:
+                // delta = current - prev
+                // rot += delta
+                // prev = current
+
+                // Let's stick to the incremental approach which is robust
+                const delta = currentAngle - this.dragStartAngle;
+                this.dragStartAngle = currentAngle;
+
+                store.updateBone(bone.id, { rotation: bone.rotation + delta });
+            }
         });
 
         stage.on('pointerup', () => {
             this.isDragging = false;
             this.dragBoneId = null;
+            this.dragStartPos = null;
+            this.dragBoneStartPos = null;
         });
 
         stage.on('pointerupoutside', () => {
             this.isDragging = false;
             this.dragBoneId = null;
+            this.dragStartPos = null;
+            this.dragBoneStartPos = null;
         });
     }
 
