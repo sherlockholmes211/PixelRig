@@ -1,4 +1,4 @@
-import { Application, Container, Sprite, Texture } from 'pixi.js';
+import { Application, Assets, Container, Sprite } from 'pixi.js';
 import { GridRenderer } from './GridRenderer';
 import { BoneRenderer } from './BoneRenderer';
 import { useBoneStore } from '../store/useBoneStore';
@@ -170,32 +170,44 @@ export class SceneManager {
     }
 
     async loadSprite(dataUrl: string) {
-        // Remove existing sprite
-        if (this.currentSprite) {
-            this.spriteContainer.removeChild(this.currentSprite);
-            this.currentSprite.destroy();
-            this.currentSprite = null;
-        }
-
-        const texture = Texture.from(dataUrl);
-        texture.source.scaleMode = 'nearest';
-
-        const sprite = new Sprite(texture);
-        sprite.label = 'UserSprite';
-        sprite.width = this.canvasSize;
-        sprite.height = this.canvasSize;
-
-        // Apply PixelSnap filter — lazy-load to avoid blocking initial render
         try {
-            const { PixelSnapFilter } = await import('./PixelSnapFilter');
-            const filter = new PixelSnapFilter(this.virtualResolution);
-            sprite.filters = [filter];
-        } catch (err) {
-            console.warn('PixelSnapFilter failed to load, rendering without pixel-snap:', err);
-        }
+            // Remove existing sprite
+            if (this.currentSprite) {
+                this.spriteContainer.removeChild(this.currentSprite);
+                this.currentSprite.destroy();
+                this.currentSprite = null;
+            }
 
-        this.spriteContainer.addChild(sprite);
-        this.currentSprite = sprite;
+            // In PixiJS v8, use Assets.load for robust async loading
+            const texture = await Assets.load(dataUrl);
+
+            // Ensure pixel-perfect scaling
+            if (texture.source) {
+                texture.source.scaleMode = 'nearest';
+            }
+
+            const sprite = new Sprite(texture);
+            sprite.label = 'UserSprite';
+            sprite.width = this.canvasSize;
+            sprite.height = this.canvasSize;
+
+            // Apply PixelSnap filter — lazy-load to avoid blocking initial render
+            try {
+                // Ensure dynamic import works with Vite
+                const { PixelSnapFilter } = await import('./PixelSnapFilter');
+                if (PixelSnapFilter) {
+                    const filter = new PixelSnapFilter(this.virtualResolution);
+                    sprite.filters = [filter];
+                }
+            } catch (err) {
+                console.warn('PixelSnapFilter failed to load, rendering without pixel-snap:', err);
+            }
+
+            this.spriteContainer.addChild(sprite);
+            this.currentSprite = sprite;
+        } catch (error) {
+            console.error('Failed to load sprite:', error);
+        }
     }
 
     private startRenderLoop() {
