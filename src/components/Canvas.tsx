@@ -19,11 +19,13 @@ export function Canvas() {
     const [isReady, setIsReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Initialize the Pixi scene once the canvas is mounted.
     useEffect(() => {
         if (!canvasRef.current) return;
 
         let destroyed = false;
 
+        // Initialize Pixi scene lazily to avoid blocking React load.
         const initScene = async () => {
             try {
                 // Dynamically import to ensure it doesn't block React rendering
@@ -63,11 +65,13 @@ export function Canvas() {
         }
     }, [spriteDataUrl, isReady]);
 
+    // Run sprite generation whenever a new request id is issued.
     useEffect(() => {
         if (!generationRequestId || !sceneRef.current || !isReady) return;
 
         let cancelled = false;
 
+        // Export the posed sprite and push result into the store.
         const run = async () => {
             const state = useBoneStore.getState();
             if (!state.spriteDataUrl) {
@@ -108,6 +112,7 @@ export function Canvas() {
         };
     }, [generationRequestId, isReady, setGeneratedSpriteUrl, setGenerationError, setIsGenerating]);
 
+    // Handle drag-and-drop sprite uploads on the canvas.
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         const file = e.dataTransfer.files[0];
@@ -121,6 +126,7 @@ export function Canvas() {
         }
     }, []);
 
+    // Prevent default to allow drop.
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
     }, []);

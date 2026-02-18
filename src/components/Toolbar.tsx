@@ -22,16 +22,19 @@ export function Toolbar() {
     const resetPose = useBoneStore((s) => s.resetPose);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Tool definitions used to render consistent buttons.
     const tools: { id: Tool; label: string; icon: typeof MousePointer2 }[] = [
         { id: 'select', label: 'Select', icon: MousePointer2 },
         { id: 'addJoint', label: 'Add Joint', icon: Plus },
         { id: 'addBone', label: 'Add Bone', icon: Link },
     ];
 
+    // Programmatically open the hidden file input.
     const handleUpload = () => {
         fileInputRef.current?.click();
     };
 
+    // Read the uploaded image and store it as a data URL for Pixi.
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file && file.type.startsWith('image/')) {
@@ -45,6 +48,7 @@ export function Toolbar() {
         e.target.value = '';
     };
 
+    // Delete the currently selected bone (if any).
     const handleDelete = () => {
         if (activeBoneId) {
             removeBone(activeBoneId);

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import type { EditorState, Bone } from '../types';
 
+// Zustand store for editor state, actions, and derived helpers.
 export const useBoneStore = create<EditorState>((set, get) => ({
     bones: [],
     activeBoneId: null,
@@ -16,6 +17,7 @@ export const useBoneStore = create<EditorState>((set, get) => ({
     virtualResolution: 64,
     canvasSize: 1024,
 
+    // Add a new bone with a generated id/name.
     addBone: (boneData) => {
         const boneCount = get().bones.length;
         const bone: Bone = {
@@ -26,6 +28,7 @@ export const useBoneStore = create<EditorState>((set, get) => ({
         set((state) => ({ bones: [...state.bones, bone] }));
     },
 
+    // Remove a bone and all its descendants from the hierarchy.
     removeBone: (id) => {
         set((state) => {
             // Recursively remove children
@@ -47,14 +50,18 @@ export const useBoneStore = create<EditorState>((set, get) => ({
         });
     },
 
+    // Apply partial updates to a single bone by id.
     updateBone: (id, updates) => {
         set((state) => ({
             bones: state.bones.map((b) => (b.id === id ? { ...b, ...updates } : b)),
         }));
     },
 
+    // Set the currently selected bone.
     setActiveBone: (id) => set({ activeBoneId: id }),
+    // Set the active editing tool.
     setActiveTool: (tool) => set({ activeTool: tool }),
+    // Toggle bound/unbound state and snapshot bind pose when binding.
     setBound: (bound) =>
         set((state) => {
             if (bound) {
@@ -80,6 +87,7 @@ export const useBoneStore = create<EditorState>((set, get) => ({
                 bindPose: null,
             };
         }),
+    // Store a new sprite data URL and clear any prior binding/generation state.
     setSpriteDataUrl: (url) =>
         set(() => ({
             spriteDataUrl: url,
@@ -89,15 +97,20 @@ export const useBoneStore = create<EditorState>((set, get) => ({
             isGenerating: false,
             bindPose: null,
         })),
+    // Increment a request id to trigger sprite generation effects.
     requestGenerate: () =>
         set((state) => ({
             generationRequestId: state.generationRequestId + 1,
             isGenerating: true,
             generationError: null,
         })),
+    // Store the generated sprite output.
     setGeneratedSpriteUrl: (url) => set({ generatedSpriteUrl: url }),
+    // Store any generation error text.
     setGenerationError: (error) => set({ generationError: error }),
+    // Update the in-flight generation flag.
     setIsGenerating: (isGenerating) => set({ isGenerating }),
+    // Reset bone transforms to the saved bind pose.
     resetPose: () =>
         set((state) => {
             if (!state.bindPose) return {};
@@ -114,14 +127,17 @@ export const useBoneStore = create<EditorState>((set, get) => ({
             };
         }),
 
+    // Return all direct children for a bone id.
     getChildren: (boneId) => {
         return get().bones.filter((b) => b.parentId === boneId);
     },
 
+    // Return all root bones (no parent).
     getRootBones: () => {
         return get().bones.filter((b) => b.parentId === null);
     },
 
+    // Compute a bone's world-space position and rotation by walking up the chain.
     getWorldTransform: (boneId) => {
         const { bones } = get();
         const bone = bones.find((b) => b.id === boneId);

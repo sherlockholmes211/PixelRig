@@ -9,6 +9,7 @@ export class GridRenderer {
     public container: Container;
     private graphics: Graphics;
 
+    /** Build the grid container and draw the initial lines. */
     constructor(
         private canvasSize: number,
         private virtualResolution: number,
@@ -20,6 +21,7 @@ export class GridRenderer {
         this.draw();
     }
 
+    /** Draw the grid lines and border at the current resolution. */
     draw() {
         const g = this.graphics;
         g.clear();
@@ -59,11 +61,13 @@ export class GridRenderer {
         g.stroke();
     }
 
+    /** Update the grid resolution and redraw. */
     updateResolution(virtualResolution: number) {
         this.virtualResolution = virtualResolution;
         this.draw();
     }
 
+    /** Dispose of grid rendering resources. */
     destroy() {
         this.container.destroy({ children: true });
     }

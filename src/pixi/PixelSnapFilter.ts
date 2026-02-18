@@ -16,6 +16,7 @@ import fragmentSrc from './pixelSnap.frag?raw';
  *   sprite.filters = [filter];
  */
 export class PixelSnapFilter extends Filter {
+    /** Build a Pixi filter that snaps sampling to a virtual pixel grid. */
     constructor(virtualResolution: number = 64) {
         const glProgram = new GlProgram({
             vertex: vertexSrc,

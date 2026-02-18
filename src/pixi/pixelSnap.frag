@@ -17,6 +17,7 @@ out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform float uResolution;
 
+// Snap UVs to virtual pixels and sample the texture.
 void main(void) {
     // Snap UV to the nearest virtual pixel
     vec2 snappedUV = floor(vTextureCoord * uResolution) / uResolution;

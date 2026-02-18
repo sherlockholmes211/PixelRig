@@ -20,6 +20,7 @@ export function applyFKRotation(
     target.rotation += deltaRotation;
 
     // Recursively propagate to children
+    // Walk the hierarchy so downstream bones inherit parent rotation in world space.
     const propagate = (parentId: string) => {
         for (const child of updated.filter((b) => b.parentId === parentId)) {
             // Children inherit the delta but don't add it to their own rotation

@@ -36,6 +36,7 @@ export class SceneManager {
     private canvasSize: number;
     private virtualResolution: number;
 
+    /** Initialize Pixi app state and wire store bindings. */
     constructor() {
         const state = useBoneStore.getState();
         this.canvasSize = state.canvasSize;
@@ -52,6 +53,7 @@ export class SceneManager {
         });
     }
 
+    /** Boot the Pixi application and set up render layers + input. */
     async init(canvas: HTMLCanvasElement) {
         await this.app.init({
             canvas,
@@ -82,6 +84,7 @@ export class SceneManager {
         this.startRenderLoop();
     }
 
+    /** Register pointer handlers for adding/selecting/transforming bones. */
     private setupInteraction() {
         const stage = this.app.stage;
 
@@ -223,6 +226,7 @@ export class SceneManager {
         });
     }
 
+    /** Find the nearest bone origin or endpoint within a max distance. */
     private findClosestBone(
         x: number,
         y: number,
@@ -251,6 +255,7 @@ export class SceneManager {
         return closest ? { id: closest.id, attach: closest.attach } : null;
     }
 
+    /** Load a sprite texture and build the deformable mesh. */
     async loadSprite(dataUrl: string) {
         try {
             if (this.currentMesh) {
@@ -294,6 +299,7 @@ export class SceneManager {
         }
     }
 
+    /** Bind each mesh vertex to its closest bone for rigid deformation. */
     private bindSkeleton() {
         if (!this.currentMesh) {
             console.warn('bindSkeleton: No mesh found');
@@ -378,6 +384,7 @@ export class SceneManager {
         console.log(`bindSkeleton: Bound ${boundCount} vertices.`);
     }
 
+    /** Restore original mesh vertices and clear binding data. */
     private unbindSkeleton() {
         if (!this.currentMesh || !this.originalVertices) return;
 
@@ -390,6 +397,7 @@ export class SceneManager {
         this.bindData = null;
     }
 
+    /** Recompute vertex positions based on current bone transforms. */
     private updateDeformation() {
         if (!this.currentMesh || !this.bindData) return;
 
@@ -421,6 +429,7 @@ export class SceneManager {
         buffer.update();
     }
 
+    /** Run the per-frame loop that draws bones and updates deformation. */
     private startRenderLoop() {
         this.app.ticker.add(() => {
             const state = useBoneStore.getState();
@@ -437,6 +446,7 @@ export class SceneManager {
         });
     }
 
+    /** Export the current sprite container to a PNG data URL. */
     async exportSprite(): Promise<string | null> {
         if (!this.currentMesh) {
             console.warn('exportSprite: No mesh found');
@@ -467,6 +477,7 @@ export class SceneManager {
         return sourceCanvas.toDataURL('image/png');
     }
 
+    /** Build a subdivided plane mesh with positions + UVs. */
     private createPlaneGeometry(width: number, height: number, segX: number, segY: number): MeshGeometry {
         console.log('SceneManager: Creating MeshGeometry (auto-bounds)');
         const totalVerts = (segX + 1) * (segY + 1);
@@ -509,6 +520,7 @@ export class SceneManager {
         return geometry;
     }
 
+    /** Tear down the Pixi app and free GPU resources. */
     destroy() {
         this.app.destroy(true, { children: true, texture: true });
     }

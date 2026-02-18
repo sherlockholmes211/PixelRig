@@ -14,6 +14,7 @@ export function Sidebar() {
     const activeBone = bones.find((b) => b.id === activeBoneId);
     const rootBones = bones.filter((b) => b.parentId === null);
 
+    // Recursively render bones with indentation for hierarchy depth.
     const renderBoneTree = (parentId: string | null, depth: number = 0) => {
         const children = parentId === null
             ? rootBones
@@ -35,7 +36,9 @@ export function Sidebar() {
         ));
     };
 
+    // Convert radians to degrees for display.
     const toDeg = (rad: number) => ((rad * 180) / Math.PI).toFixed(1);
+    // Convert degrees from input back to radians.
     const toRad = (deg: string) => (parseFloat(deg) * Math.PI) / 180;
 
     return (

@@ -9,6 +9,7 @@ export class BoneRenderer {
     public container: Container;
     private graphics: Graphics;
 
+    /** Create a container and graphics layer for bone overlay rendering. */
     constructor() {
         this.container = new Container();
         this.container.label = 'BoneOverlay';
@@ -66,6 +67,7 @@ export class BoneRenderer {
         }
     }
 
+    /** Dispose of the graphics container. */
     destroy() {
         this.container.destroy({ children: true });
     }
