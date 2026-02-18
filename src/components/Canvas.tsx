@@ -12,6 +12,10 @@ export function Canvas() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const sceneRef = useRef<any>(null);
     const spriteDataUrl = useBoneStore((s) => s.spriteDataUrl);
+    const generationRequestId = useBoneStore((s) => s.generationRequestId);
+    const setGeneratedSpriteUrl = useBoneStore((s) => s.setGeneratedSpriteUrl);
+    const setGenerationError = useBoneStore((s) => s.setGenerationError);
+    const setIsGenerating = useBoneStore((s) => s.setIsGenerating);
     const [isReady, setIsReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +62,51 @@ export function Canvas() {
             sceneRef.current.loadSprite(spriteDataUrl);
         }
     }, [spriteDataUrl, isReady]);
+
+    useEffect(() => {
+        if (!generationRequestId || !sceneRef.current || !isReady) return;
+
+        let cancelled = false;
+
+        const run = async () => {
+            const state = useBoneStore.getState();
+            if (!state.spriteDataUrl) {
+                setGenerationError('Upload a sprite before generating.');
+                setIsGenerating(false);
+                return;
+            }
+            if (!state.isBound) {
+                setGenerationError('Bind the skeleton before generating.');
+                setIsGenerating(false);
+                return;
+            }
+
+            try {
+                const dataUrl = await sceneRef.current.exportSprite();
+                if (cancelled) return;
+                if (dataUrl) {
+                    setGeneratedSpriteUrl(dataUrl);
+                    setGenerationError(null);
+                } else {
+                    setGenerationError('Failed to export sprite.');
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    setGenerationError(String(err));
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsGenerating(false);
+                }
+            }
+        };
+
+        run();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [generationRequestId, isReady, setGeneratedSpriteUrl, setGenerationError, setIsGenerating]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();

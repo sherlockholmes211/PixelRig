@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { MousePointer2, Plus, Link, Upload, Trash2 } from 'lucide-react';
+import { MousePointer2, Plus, Link, Upload, Trash2, Link2, Sparkles, RotateCcw } from 'lucide-react';
 import { useBoneStore } from '../store/useBoneStore';
 import type { Tool } from '../types';
 
@@ -12,6 +12,14 @@ export function Toolbar() {
     const setSpriteDataUrl = useBoneStore((s) => s.setSpriteDataUrl);
     const activeBoneId = useBoneStore((s) => s.activeBoneId);
     const removeBone = useBoneStore((s) => s.removeBone);
+    const isBound = useBoneStore((s) => s.isBound);
+    const setBound = useBoneStore((s) => s.setBound);
+    const bonesCount = useBoneStore((s) => s.bones.length);
+    const spriteDataUrl = useBoneStore((s) => s.spriteDataUrl);
+    const requestGenerate = useBoneStore((s) => s.requestGenerate);
+    const isGenerating = useBoneStore((s) => s.isGenerating);
+    const bindPose = useBoneStore((s) => s.bindPose);
+    const resetPose = useBoneStore((s) => s.resetPose);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const tools: { id: Tool; label: string; icon: typeof MousePointer2 }[] = [
@@ -66,8 +74,9 @@ export function Toolbar() {
                         <button
                             key={tool.id}
                             className={`toolbar-btn ${activeTool === tool.id ? 'active' : ''}`}
-                            onClick={() => setActiveTool(tool.id)}
-                            title={tool.label}
+                            onClick={() => !isBound && setActiveTool(tool.id)}
+                            disabled={isBound}
+                            title={isBound ? 'Unbind to edit skeleton' : tool.label}
                         >
                             <Icon size={18} />
                             <span className="toolbar-btn-label">{tool.label}</span>
@@ -76,6 +85,59 @@ export function Toolbar() {
                 })}
             </div>
 
+            <div className="toolbar-separator" />
+
+            <div className="toolbar-actions">
+                <button
+                    className="toolbar-btn"
+                    onClick={() => requestGenerate()}
+                    disabled={!spriteDataUrl || !isBound || isGenerating}
+                    title={
+                        !spriteDataUrl
+                            ? 'Upload a sprite first'
+                            : !isBound
+                                ? 'Bind the skeleton before generating'
+                                : isGenerating
+                                    ? 'Generating...'
+                                    : 'Generate Sprite'
+                    }
+                >
+                    <Sparkles size={18} />
+                    <span className="toolbar-btn-label">{isGenerating ? 'Generating' : 'Generate'}</span>
+                </button>
+                <button
+                    className="toolbar-btn"
+                    onClick={() => resetPose()}
+                    disabled={!isBound || !bindPose || isGenerating}
+                    title={!isBound ? 'Bind the skeleton to enable reset' : 'Reset pose to bind state'}
+                >
+                    <RotateCcw size={18} />
+                    <span className="toolbar-btn-label">Reset Pose</span>
+                </button>
+            </div>
+
+            <div className="toolbar-separator" />
+
+            <div className="toolbar-actions">
+                <button
+                    className={`toolbar-btn ${isBound ? 'active' : ''}`}
+                    onClick={() => setBound(!isBound)}
+                    disabled={!isBound && (!spriteDataUrl || bonesCount === 0)}
+                    title={
+                        isBound
+                            ? 'Unbind Skeleton'
+                            : !spriteDataUrl
+                                ? 'Upload a sprite first'
+                                : bonesCount === 0
+                                    ? 'Add at least one bone before binding'
+                                    : 'Bind Skeleton'
+                    }
+                    style={{ color: isBound ? '#10b981' : undefined }}
+                >
+                    <Link2 size={18} />
+                    <span className="toolbar-btn-label">{isBound ? 'Bound' : 'Bind'}</span>
+                </button>
+            </div>
             <div className="toolbar-separator" />
 
             <div className="toolbar-actions">

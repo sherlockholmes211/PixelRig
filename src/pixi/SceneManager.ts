@@ -1,4 +1,4 @@
-import { Application, Assets, Container, Sprite } from 'pixi.js';
+import { Application, Assets, Container, Mesh, MeshGeometry, Rectangle } from 'pixi.js';
 import { GridRenderer } from './GridRenderer';
 import { BoneRenderer } from './BoneRenderer';
 import { useBoneStore } from '../store/useBoneStore';
@@ -20,7 +20,9 @@ export class SceneManager {
     private gridRenderer!: GridRenderer;
     private boneRenderer!: BoneRenderer;
     private spriteContainer!: Container;
-    private currentSprite: Sprite | null = null;
+    private currentMesh: Mesh | null = null;
+    private bindData: { boneId: string; localX: number; localY: number; index: number }[] | null = null;
+    private originalVertices: Float32Array | null = null;
 
     // Interaction state
     private isDragging = false;
@@ -29,7 +31,7 @@ export class SceneManager {
     private dragStartPos: { x: number; y: number } | null = null;
     private dragBoneStartPos: { x: number; y: number } | null = null;
     private dragBoneId: string | null = null;
-    private pendingJointId: string | null = null;
+    private pendingJoint: { id: string; attach: 'origin' | 'end' } | null = null;
 
     private canvasSize: number;
     private virtualResolution: number;
@@ -39,6 +41,15 @@ export class SceneManager {
         this.canvasSize = state.canvasSize;
         this.virtualResolution = state.virtualResolution;
         this.app = new Application();
+
+        // Subscribe to store changes to handle binding
+        useBoneStore.subscribe((state, prevState) => {
+            if (state.isBound && !prevState.isBound) {
+                this.bindSkeleton();
+            } else if (!state.isBound && prevState.isBound) {
+                this.unbindSkeleton();
+            }
+        });
     }
 
     async init(canvas: HTMLCanvasElement) {
@@ -77,7 +88,7 @@ export class SceneManager {
         stage.on('pointerdown', (event) => {
             const pos = event.global;
             const store = useBoneStore.getState();
-            const tool: Tool = store.activeTool;
+            const tool: Tool = store.isBound ? 'select' : store.activeTool;
 
             if (tool === 'addJoint') {
                 store.addBone({
@@ -85,28 +96,37 @@ export class SceneManager {
                     position: { x: pos.x, y: pos.y },
                     rotation: 0,
                     length: 0,
+                    radius: 50,
                 });
             } else if (tool === 'addBone') {
-                if (!this.pendingJointId) {
+                if (!this.pendingJoint) {
                     const closest = this.findClosestBone(pos.x, pos.y);
                     if (closest) {
-                        this.pendingJointId = closest.id;
+                        this.pendingJoint = closest;
                     }
                 } else {
-                    const parentBone = store.bones.find((b) => b.id === this.pendingJointId);
+                    const parentBone = store.bones.find((b) => b.id === this.pendingJoint!.id);
                     if (parentBone) {
                         const parentWorld = store.getWorldTransform(parentBone.id);
-                        const angle = angleBetween(parentWorld.x, parentWorld.y, pos.x, pos.y);
-                        const len = distance(parentWorld.x, parentWorld.y, pos.x, pos.y);
+                        const attachAtEnd = this.pendingJoint!.attach === 'end';
+                        const anchorX = attachAtEnd
+                            ? parentWorld.x + Math.cos(parentWorld.rotation) * parentBone.length
+                            : parentWorld.x;
+                        const anchorY = attachAtEnd
+                            ? parentWorld.y + Math.sin(parentWorld.rotation) * parentBone.length
+                            : parentWorld.y;
+                        const angle = angleBetween(anchorX, anchorY, pos.x, pos.y);
+                        const len = distance(anchorX, anchorY, pos.x, pos.y);
 
                         store.addBone({
                             parentId: parentBone.id,
-                            position: { x: 0, y: 0 },
+                            position: attachAtEnd ? { x: parentBone.length, y: 0 } : { x: 0, y: 0 },
                             rotation: angle - parentWorld.rotation,
                             length: len,
+                            radius: 50,
                         });
                     }
-                    this.pendingJointId = null;
+                    this.pendingJoint = null;
                 }
             } else if (tool === 'select') {
                 const closest = this.findClosestBone(pos.x, pos.y);
@@ -180,30 +200,7 @@ export class SceneManager {
                 }
             } else if (this.dragMode === 'rotate') {
                 const world = store.getWorldTransform(bone.id);
-                // For rotation, we need the angle relative to the bone's origin
-                // But wait, if we are rotating *this* bone, the pivot is its origin.
-                // The angle we are dragging is the angle from the pivot to the mouse.
                 const currentAngle = angleBetween(world.x, world.y, pos.x, pos.y);
-
-                // We need the *change* in angle to apply to the local rotation
-                // But wait, `dragStartAngle` was initialized relative to world space.
-                // So `delta` is the world space rotation difference.
-                // We can just add this delta to the local rotation.
-
-                // Re-initialize dragStartAngle on move to avoid jumps if we switched modes?
-                // No, standard click-drag logic:
-                // On Down: record StartAngle (Mouse -> Pivot)
-                // On Move: CurrentAngle (Mouse -> Pivot)
-                // Delta = Current - Start
-                // NewRotation = OldRotation + Delta
-                // This requires storing OldRotation on MouseDown. 
-
-                // Current implementation was:
-                // delta = current - prev
-                // rot += delta
-                // prev = current
-
-                // Let's stick to the incremental approach which is robust
                 const delta = currentAngle - this.dragStartAngle;
                 this.dragStartAngle = currentAngle;
 
@@ -226,16 +223,19 @@ export class SceneManager {
         });
     }
 
-    private findClosestBone(x: number, y: number): { id: string } | null {
+    private findClosestBone(
+        x: number,
+        y: number,
+    ): { id: string; attach: 'origin' | 'end' } | null {
         const store = useBoneStore.getState();
-        let closest: { id: string; dist: number } | null = null;
+        let closest: { id: string; dist: number; attach: 'origin' | 'end' } | null = null;
         const maxDist = 20;
 
         for (const bone of store.bones) {
             const world = store.getWorldTransform(bone.id);
             const d = distance(world.x, world.y, x, y);
             if (d < maxDist && (!closest || d < closest.dist)) {
-                closest = { id: bone.id, dist: d };
+                closest = { id: bone.id, dist: d, attach: 'origin' };
             }
 
             if (bone.length > 0) {
@@ -243,64 +243,270 @@ export class SceneManager {
                 const endY = world.y + Math.sin(world.rotation) * bone.length;
                 const dEnd = distance(endX, endY, x, y);
                 if (dEnd < maxDist && (!closest || dEnd < closest.dist)) {
-                    closest = { id: bone.id, dist: dEnd };
+                    closest = { id: bone.id, dist: dEnd, attach: 'end' };
                 }
             }
         }
 
-        return closest;
+        return closest ? { id: closest.id, attach: closest.attach } : null;
     }
 
     async loadSprite(dataUrl: string) {
         try {
-            // Remove existing sprite
-            if (this.currentSprite) {
-                this.spriteContainer.removeChild(this.currentSprite);
-                this.currentSprite.destroy();
-                this.currentSprite = null;
+            if (this.currentMesh) {
+                this.spriteContainer.removeChild(this.currentMesh);
+                this.currentMesh.destroy();
+                this.currentMesh = null;
             }
 
-            // In PixiJS v8, use Assets.load for robust async loading
             const texture = await Assets.load(dataUrl);
-
-            // Ensure pixel-perfect scaling
             if (texture.source) {
                 texture.source.scaleMode = 'nearest';
             }
 
-            const sprite = new Sprite(texture);
-            sprite.label = 'UserSprite';
-            sprite.width = this.canvasSize;
-            sprite.height = this.canvasSize;
+            // Create a dense grid for deformation
+            // For pixel art, we want a vertex every few pixels?
+            // Let's use a 32x32 grid for now (32 segments -> 33 vertices)
+            // Create a dense grid for deformation using custom interleaved geometry
+            // This ensures we have [x, y, u, v] in a single buffer, robust for default Mesh shader.
+            const geometry = this.createPlaneGeometry(this.canvasSize, this.canvasSize, 32, 32);
 
-            // Apply PixelSnap filter — lazy-load to avoid blocking initial render
+            // Cast to any/MeshGeometry because standard Mesh expects specific geometry type but works with generic
+            const mesh = new Mesh({ geometry: geometry as any, texture });
+            mesh.label = 'UserMesh';
+
+            // Apply PixelSnap
             try {
-                // Ensure dynamic import works with Vite
                 const { PixelSnapFilter } = await import('./PixelSnapFilter');
                 if (PixelSnapFilter) {
-                    const filter = new PixelSnapFilter(this.virtualResolution);
-                    sprite.filters = [filter];
+                    // const filter = new PixelSnapFilter(this.virtualResolution);
+                    // mesh.filters = [filter];
                 }
             } catch (err) {
-                console.warn('PixelSnapFilter failed to load, rendering without pixel-snap:', err);
+                console.warn('PixelSnapFilter error:', err);
             }
 
-            this.spriteContainer.addChild(sprite);
-            this.currentSprite = sprite;
+            this.spriteContainer.addChild(mesh);
+            this.currentMesh = mesh;
+            this.bindData = null; // Clear old binding
         } catch (error) {
             console.error('Failed to load sprite:', error);
         }
     }
 
+    private bindSkeleton() {
+        if (!this.currentMesh) {
+            console.warn('bindSkeleton: No mesh found');
+            return;
+        }
+        const store = useBoneStore.getState();
+        if (store.bones.length === 0) {
+            console.warn('bindSkeleton: No bones found');
+            return;
+        }
+
+        console.log('bindSkeleton: Starting binding...');
+        this.pendingJoint = null;
+
+        // Ensure we have a geometry with accessible buffer
+        const attribute = this.currentMesh.geometry.getAttribute('aPosition');
+        const buffer = attribute.buffer;
+        buffer.static = false; // Allow dynamic updates to vertices
+        const vertices = buffer.data as Float32Array;
+
+        console.log(`bindSkeleton: Mesh has ${vertices.length / 2} vertices. Bones: ${store.bones.length}`);
+
+        // Save original state
+        this.originalVertices = new Float32Array(vertices);
+        this.bindData = [];
+
+        // Calculate weights (Rigid Binding: 1 vertex = 1 bone)
+        // Attribute stride/offset are in bytes. 1 float = 4 bytes.
+        // If stride is 0, it means tightly packed (size * 4).
+        const size = attribute.size || 2;
+        const rawStride = attribute.stride || (size * 4);
+        const rawOffset = attribute.offset || 0; // Pixi v8 uses 'offset', v7 used 'start' check types? Assuming offset.
+
+        const stride = rawStride / 4;
+        const offset = rawOffset / 4;
+
+        console.log(`bindSkeleton: Stride (floats): ${stride}, Offset (floats): ${offset}, Total Length: ${vertices.length}`);
+        console.log(`bindSkeleton: First vertex: ${vertices[offset]}, ${vertices[offset + 1]}`);
+        console.log(`bindSkeleton: Last vertex: ${vertices[vertices.length - stride]}, ${vertices[vertices.length - stride + 1]}`);
+
+
+        let boundCount = 0;
+        // Iterate by stride
+        for (let i = offset; i < vertices.length; i += stride) {
+            const vx = vertices[i];
+            const vy = vertices[i + 1];
+
+            let closestBoneId = null;
+            let minDist = Infinity;
+            let closestWorld = null;
+
+            // Find controlling bone
+            for (const bone of store.bones) {
+                const world = store.getWorldTransform(bone.id);
+                const d = distance(world.x, world.y, vx, vy);
+
+                if (d < minDist) {
+                    minDist = d;
+                    closestBoneId = bone.id;
+                    closestWorld = world;
+                }
+            }
+
+            if (closestBoneId && closestWorld) {
+                // Calculate local offset
+                const dx = vx - closestWorld.x;
+                const dy = vy - closestWorld.y;
+                const cos = Math.cos(-closestWorld.rotation);
+                const sin = Math.sin(-closestWorld.rotation);
+
+                this.bindData.push({
+                    boneId: closestBoneId,
+                    localX: cos * dx - sin * dy,
+                    localY: sin * dx + cos * dy,
+                    index: i // Store the index to write back to
+                });
+                boundCount++;
+            } else {
+                console.warn(`bindSkeleton: Vertex at index ${i} has no bone`);
+            }
+        }
+        console.log(`bindSkeleton: Bound ${boundCount} vertices.`);
+    }
+
+    private unbindSkeleton() {
+        if (!this.currentMesh || !this.originalVertices) return;
+
+        // Restore original vertices
+        const buffer = this.currentMesh.geometry.getAttribute('aPosition').buffer;
+        const vertices = buffer.data as Float32Array;
+        vertices.set(this.originalVertices);
+        buffer.update();
+
+        this.bindData = null;
+    }
+
+    private updateDeformation() {
+        if (!this.currentMesh || !this.bindData) return;
+
+        // console.log('updateDeformation: Running...'); // Uncomment for verbose loop log
+
+        const store = useBoneStore.getState();
+        const buffer = this.currentMesh.geometry.getAttribute('aPosition').buffer;
+        const vertices = buffer.data as Float32Array;
+
+        for (let i = 0; i < this.bindData.length; i++) {
+            const data = this.bindData[i];
+            if (!data.boneId) continue;
+
+            const world = store.getWorldTransform(data.boneId);
+
+            // Apply current bone transform to local offset
+            const cos = Math.cos(world.rotation);
+            const sin = Math.sin(world.rotation);
+
+
+            const nx = world.x + (cos * data.localX - sin * data.localY);
+            const ny = world.y + (sin * data.localX + cos * data.localY);
+
+            // Use stored index to handle stride correctly
+            vertices[data.index] = nx;
+            vertices[data.index + 1] = ny;
+        }
+
+        buffer.update();
+    }
+
     private startRenderLoop() {
         this.app.ticker.add(() => {
             const state = useBoneStore.getState();
+
+            if (state.isBound) {
+                this.updateDeformation();
+            }
+
             this.boneRenderer.draw(
                 state.bones,
                 (id) => state.getWorldTransform(id),
                 state.activeBoneId,
             );
         });
+    }
+
+    async exportSprite(): Promise<string | null> {
+        if (!this.currentMesh) {
+            console.warn('exportSprite: No mesh found');
+            return null;
+        }
+
+        const frame = new Rectangle(0, 0, this.canvasSize, this.canvasSize);
+        const sourceCanvas = this.app.renderer.extract.canvas({
+            target: this.spriteContainer,
+            frame,
+            clearColor: [0, 0, 0, 0],
+        }) as HTMLCanvasElement;
+
+        if (!sourceCanvas) return null;
+
+        if (this.virtualResolution && this.virtualResolution !== this.canvasSize) {
+            const outCanvas = document.createElement('canvas');
+            outCanvas.width = this.virtualResolution;
+            outCanvas.height = this.virtualResolution;
+            const ctx = outCanvas.getContext('2d');
+            if (!ctx) return null;
+            ctx.imageSmoothingEnabled = false;
+            ctx.clearRect(0, 0, outCanvas.width, outCanvas.height);
+            ctx.drawImage(sourceCanvas, 0, 0, outCanvas.width, outCanvas.height);
+            return outCanvas.toDataURL('image/png');
+        }
+
+        return sourceCanvas.toDataURL('image/png');
+    }
+
+    private createPlaneGeometry(width: number, height: number, segX: number, segY: number): MeshGeometry {
+        console.log('SceneManager: Creating MeshGeometry (auto-bounds)');
+        const totalVerts = (segX + 1) * (segY + 1);
+
+        const positions = new Float32Array(totalVerts * 2);
+        const uvs = new Float32Array(totalVerts * 2);
+        const indices: number[] = [];
+
+        for (let y = 0; y <= segY; y++) {
+            for (let x = 0; x <= segX; x++) {
+                const i = y * (segX + 1) + x;
+
+                // Position (0..width, 0..height)
+                positions[i * 2] = (x / segX) * width;
+                positions[i * 2 + 1] = (y / segY) * height;
+
+                // UV (0..1)
+                uvs[i * 2] = x / segX;
+                uvs[i * 2 + 1] = y / segY;
+
+                // Indices
+                if (x < segX && y < segY) {
+                    const topLeft = y * (segX + 1) + x;
+                    const topRight = topLeft + 1;
+                    const bottomLeft = (y + 1) * (segX + 1) + x;
+                    const bottomRight = bottomLeft + 1;
+
+                    indices.push(topLeft, topRight, bottomLeft);
+                    indices.push(topRight, bottomRight, bottomLeft);
+                }
+            }
+        }
+
+        const geometry = new MeshGeometry({
+            positions,
+            uvs,
+            indices: new Uint32Array(indices)
+        });
+
+        return geometry;
     }
 
     destroy() {

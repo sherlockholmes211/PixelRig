@@ -1,12 +1,18 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { EditorState, Bone, WorldTransform } from '../types';
+import type { EditorState, Bone } from '../types';
 
 export const useBoneStore = create<EditorState>((set, get) => ({
     bones: [],
     activeBoneId: null,
     activeTool: 'select',
+    isBound: false,
     spriteDataUrl: null,
+    generatedSpriteUrl: null,
+    generationError: null,
+    isGenerating: false,
+    generationRequestId: 0,
+    bindPose: null,
     virtualResolution: 64,
     canvasSize: 1024,
 
@@ -49,7 +55,64 @@ export const useBoneStore = create<EditorState>((set, get) => ({
 
     setActiveBone: (id) => set({ activeBoneId: id }),
     setActiveTool: (tool) => set({ activeTool: tool }),
-    setSpriteDataUrl: (url) => set({ spriteDataUrl: url }),
+    setBound: (bound) =>
+        set((state) => {
+            if (bound) {
+                const bindPose = state.bones.reduce<Record<string, { position: { x: number; y: number }; rotation: number }>>(
+                    (acc, bone) => {
+                        acc[bone.id] = {
+                            position: { ...bone.position },
+                            rotation: bone.rotation,
+                        };
+                        return acc;
+                    },
+                    {},
+                );
+                return {
+                    isBound: true,
+                    activeTool: 'select',
+                    bindPose,
+                };
+            }
+
+            return {
+                isBound: false,
+                bindPose: null,
+            };
+        }),
+    setSpriteDataUrl: (url) =>
+        set(() => ({
+            spriteDataUrl: url,
+            isBound: false,
+            generatedSpriteUrl: null,
+            generationError: null,
+            isGenerating: false,
+            bindPose: null,
+        })),
+    requestGenerate: () =>
+        set((state) => ({
+            generationRequestId: state.generationRequestId + 1,
+            isGenerating: true,
+            generationError: null,
+        })),
+    setGeneratedSpriteUrl: (url) => set({ generatedSpriteUrl: url }),
+    setGenerationError: (error) => set({ generationError: error }),
+    setIsGenerating: (isGenerating) => set({ isGenerating }),
+    resetPose: () =>
+        set((state) => {
+            if (!state.bindPose) return {};
+            return {
+                bones: state.bones.map((bone) => {
+                    const pose = state.bindPose?.[bone.id];
+                    if (!pose) return bone;
+                    return {
+                        ...bone,
+                        position: { ...pose.position },
+                        rotation: pose.rotation,
+                    };
+                }),
+            };
+        }),
 
     getChildren: (boneId) => {
         return get().bones.filter((b) => b.parentId === boneId);

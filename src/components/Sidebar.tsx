@@ -8,6 +8,9 @@ export function Sidebar() {
     const activeBoneId = useBoneStore((s) => s.activeBoneId);
     const setActiveBone = useBoneStore((s) => s.setActiveBone);
     const updateBone = useBoneStore((s) => s.updateBone);
+    const generatedSpriteUrl = useBoneStore((s) => s.generatedSpriteUrl);
+    const generationError = useBoneStore((s) => s.generationError);
+    const isGenerating = useBoneStore((s) => s.isGenerating);
     const activeBone = bones.find((b) => b.id === activeBoneId);
     const rootBones = bones.filter((b) => b.parentId === null);
 
@@ -109,6 +112,31 @@ export function Sidebar() {
                     </div>
                 </div>
             )}
+
+            <div className="sidebar-section">
+                <h3 className="sidebar-heading">Generated Sprite</h3>
+                {isGenerating && <p className="sidebar-note">Generating...</p>}
+                {generationError && <p className="sidebar-error">{generationError}</p>}
+                {!isGenerating && !generationError && !generatedSpriteUrl && (
+                    <p className="sidebar-note">Bind, pose, then click Generate.</p>
+                )}
+                {generatedSpriteUrl && (
+                    <div className="generated-preview">
+                        <img
+                            className="generated-image"
+                            src={generatedSpriteUrl}
+                            alt="Generated sprite"
+                        />
+                        <a
+                            className="sidebar-btn"
+                            href={generatedSpriteUrl}
+                            download="pixelrig-generated.png"
+                        >
+                            Download PNG
+                        </a>
+                    </div>
+                )}
+            </div>
 
             <div className="sidebar-footer">
                 <div className="sidebar-stat">
